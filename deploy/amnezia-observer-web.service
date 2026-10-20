@@ -1,0 +1,21 @@
+[Unit]
+Description=Amnezia Observer web interface
+After=amnezia-observer-broker.service
+Requires=amnezia-observer-broker.service
+
+[Service]
+User=amnezia-observer
+Group=amnezia-observer
+WorkingDirectory=/opt/amnezia-observer
+ExecStart=/opt/amnezia-observer/venv/bin/python /opt/amnezia-observer/app.py
+EnvironmentFile=/etc/amnezia-observer/web.env
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

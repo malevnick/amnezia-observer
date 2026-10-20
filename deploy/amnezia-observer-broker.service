@@ -1,0 +1,26 @@
+[Unit]
+Description=Amnezia Observer local collector
+After=docker.service
+Requires=docker.service
+
+[Service]
+User=root
+Group=amnezia-observer
+WorkingDirectory=/opt/amnezia-observer
+ExecStart=/usr/bin/python3 /opt/amnezia-observer/backend.py
+EnvironmentFile=/etc/amnezia-observer/broker.env
+RuntimeDirectory=amnezia-observer
+RuntimeDirectoryMode=0750
+StateDirectory=amnezia-observer
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run/amnezia-observer /var/lib/amnezia-observer
+
+[Install]
+WantedBy=multi-user.target

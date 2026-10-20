@@ -1,0 +1,23 @@
+[Unit]
+Description=Amnezia Observer HTTPS on IP address
+After=network.target amnezia-observer-web.service
+Requires=amnezia-observer-web.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/nginx -t -c /etc/amnezia-observer/nginx.conf
+ExecStart=/usr/sbin/nginx -c /etc/amnezia-observer/nginx.conf -g "daemon off;"
+ExecReload=/bin/kill -HUP $MAINPID
+RuntimeDirectory=amnezia-observer-https
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/run/amnezia-observer-https
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

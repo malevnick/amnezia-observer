@@ -1,0 +1,4 @@
+Flask>=3.1,<4
+waitress>=3.0,<4
+qrcode==8.2
+tzdata; sys_platform == "win32"
