@@ -18,7 +18,7 @@ if test -z "${PANEL_IP:-}"; then
 fi
 PANEL_PORT=${PANEL_PORT:-8443}
 # Validate before installing packages or stopping any Observer service.
-python3 -c 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1]); p=int(sys.argv[2]); assert 1024<=p<=65535 and p!=5055' "$PANEL_IP" "$PANEL_PORT"
+python3 -c 'import ipaddress,sys; ipaddress.IPv4Address(sys.argv[1]); p=int(sys.argv[2]); assert (p==443 or 1024<=p<=65535) and p!=5055' "$PANEL_IP" "$PANEL_PORT"
 apt-get update
 apt-get install -y python3-venv openssl tzdata
 # Prevent a newly installed distribution nginx from opening the default port 80.

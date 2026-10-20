@@ -8,8 +8,8 @@ import subprocess
 
 def setup(ip, port, root=Path('/etc/amnezia-observer')):
     ip = str(ipaddress.IPv4Address(ip))
-    if not 1024 <= port <= 65535 or port == 5055:
-        raise ValueError('Choose a port from 1024 to 65535, except internal port 5055')
+    if (port != 443 and not 1024 <= port <= 65535) or port == 5055:
+        raise ValueError('Choose 443 or a port from 1024 to 65535, except internal port 5055')
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     cert, key = root / 'server.crt', root / 'server.key'
     valid = cert.exists() and key.exists()
@@ -42,6 +42,12 @@ events {{ worker_connections 128; }}
 http {{
     access_log off;
     server_tokens off;
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 256;
+    gzip_comp_level 4;
+    gzip_types text/css text/javascript application/javascript application/json;
+    ssl_buffer_size 4k;
     client_max_body_size 16k;
     client_body_buffer_size 16k;
     client_body_temp_path /run/amnezia-observer-https/body;
@@ -61,6 +67,19 @@ http {{
         ssl_protocols TLSv1.2 TLSv1.3;
         ssl_session_cache shared:observer_tls:1m;
         location = /amnadmin {{ return 308 /amnadmin/; }}
+        location /amnadmin/api/ {{
+            gzip off;
+            proxy_pass http://127.0.0.1:5055;
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_connect_timeout 3s;
+            proxy_read_timeout 30s;
+            proxy_buffering on;
+            proxy_buffer_size 16k;
+            proxy_buffers 4 16k;
+            proxy_max_temp_file_size 0;
+        }}
         location /amnadmin/ {{
             proxy_pass http://127.0.0.1:5055;
             proxy_set_header Host $http_host;

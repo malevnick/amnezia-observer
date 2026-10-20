@@ -2,17 +2,21 @@
 const $=id=>document.getElementById(id);
 const csrf=document.querySelector('meta[name="csrf-token"]').content;
 const base=document.querySelector('meta[name="app-base"]').content.replace(/\/$/,'');
-let data=null, pending=null, busy=false, fresh=false;
+let data=null, pending=null, busy=false, fresh=false, refreshing=false, refreshTimer=null;
 async function api(path, body){
- const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),28000);
+ const isStatus=path==='/api/status'&&!body;
+ const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),isStatus?1000:28000);
  try{
   const response=await fetch(base+path,{method:body?'POST':'GET',credentials:'same-origin',signal:controller.signal,
    headers:body?{'Content-Type':'application/json','X-CSRF-Token':csrf}:{},body:body?JSON.stringify(body):undefined});
   const result=await response.json();
-  if(response.status===401&&path!='/login'){location.href=base+'/';throw Error('Сессия завершена');}
-  if(!response.ok)throw Error(result.error||'Не удалось выполнить запрос');
+  if(response.status===401&&path!='/login')location.href=base+'/';
+  if(!response.ok){const error=Error(result.error||'Не удалось выполнить запрос');error.status=response.status;throw error;}
   return result;
- }catch(e){throw Error(e.name==='AbortError'?'Сервер не ответил вовремя. Попробуй обновить данные.':e.message);}
+ }catch(e){
+  if(e.name==='AbortError')throw Error(isStatus?'Ответ задержался. Повторяем запрос…':'Сервер не ответил вовремя. Попробуй обновить данные.');
+  throw e;
+ }
  finally{clearTimeout(timer);}
 }
 function bytes(value){if(value===null||value===undefined)return '—';let n=value,u=0;const units=['Б','КиБ','МиБ','ГиБ','ТиБ'];while(n>=1024&&u<4){n/=1024;u++;}return n.toFixed(u?1:0)+' '+units[u];}
@@ -63,7 +67,23 @@ function render(){
  $('actions').replaceChildren();for(const a of data.actions||[]){$('actions').append(el('li',a.name+' · '+(a.block?'Доступ заблокирован':'Доступ восстановлен')+' · '+ago(a.time)));}
  if(!data.actions?.length)$('actions').append(el('li','Действий пока нет'));
 }
-async function refresh(){if(busy)return;try{data=await api('/api/status');render();}catch(e){fresh=false;$('error').textContent=e.message;$('error').classList.remove('hidden');$('health').textContent='● Нет связи';renderPeers();}}
+async function refresh(){
+ if(refreshing)return;
+ clearTimeout(refreshTimer);
+ if(busy||document.hidden){refreshTimer=setTimeout(refresh,1000);return;}
+ refreshing=true;const started=Date.now();let delay=5000;
+ try{data=await api('/api/status');render();}
+ catch(e){
+  fresh=false;$('error').textContent=e.message;$('error').classList.remove('hidden');
+  $('health').textContent='● Повтор подключения';renderPeers();
+  // Abort settles before the next request starts. At most one status request
+  // is active, and even immediate network failures cannot create a tight loop.
+  delay=e.status===401?null:Math.max(0,1000-(Date.now()-started));
+ }finally{
+  refreshing=false;
+  if(delay!==null)refreshTimer=setTimeout(refresh,delay);
+ }
+}
 if($('login-form')){
  $('login-form').addEventListener('submit',async event=>{event.preventDefault();const button=event.currentTarget.querySelector('button');button.disabled=true;button.textContent='Проверяем…';$('login-error').textContent='';
   try{await api('/login',{username:$('username').value,password:$('password').value});location.href=base+'/';}
@@ -108,5 +128,6 @@ if($('login-form')){
   }catch(e){if(generation===qrGeneration)$('qr-error').textContent=e.message;}
   finally{$('qr-create').disabled=false;}
  });
- refresh();setInterval(refresh,5000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh();});
+ refresh();
 }

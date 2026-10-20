@@ -228,11 +228,23 @@ class HttpsSetupTests(unittest.TestCase):
             self.assertEqual(env.count('PANEL_HOST='), 1)
             config = (root/'nginx.conf').read_text()
             self.assertIn('listen 8443 ssl;', config)
+            self.assertIn('gzip on;', config)
+            self.assertIn('ssl_buffer_size 4k;', config)
+            api_config = config.split('location /amnadmin/api/ {', 1)[1].split('}', 1)[0]
+            self.assertIn('gzip off;', api_config)
+            self.assertIn('proxy_buffering on;', api_config)
+            self.assertIn('proxy_buffer_size 16k;', api_config)
             self.assertIn('proxy_pass http://127.0.0.1:5055;', config)
             for name in ('client_body', 'proxy', 'fastcgi', 'uwsgi', 'scgi'):
                 self.assertIn(name+'_temp_path /run/amnezia-observer-https/', config)
             self.assertNotIn('listen 80', config)
             self.assertFalse(any('req' in call.args[0] for call in run.call_args_list))
+            with patch('https_setup.subprocess.run') as run:
+                run.return_value.returncode = 0
+                setup('192.0.2.1', 443, root)
+            config = (root/'nginx.conf').read_text()
+            self.assertIn('listen 443 ssl;', config)
+            self.assertNotIn('listen 8443 ssl;', config)
 
     def test_invalid_ip_and_internal_port_rejected(self):
         from https_setup import setup
