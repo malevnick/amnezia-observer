@@ -15,3 +15,5 @@ jobs:
       - run: bash -n install.sh
       - run: node --check static/ui.js
       - run: node tests/test_polling.cjs
+      - run: node --check static/history.js
+      - run: node tests/test_history_ui.cjs

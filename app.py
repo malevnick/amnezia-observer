@@ -5,7 +5,9 @@ import threading
 import time
 import base64
 import io
-from datetime import timedelta
+import re
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
@@ -29,6 +31,7 @@ class Demo:
                 key = str(i+1)*24
                 settings = self.settings.get(key, {})
                 peers.append(dict(id=key, name=settings.get('name') or name, addresses=f'10.8.1.{i+2}/32',
+                    observer_name=settings.get('name', ''), amnezia_name=name, accounting_started=time.time()-86400*30,
                     state='blocked' if key in self.blocked else ('online' if i<2 else 'offline'),
                     manual_blocked=key in self.blocked, quota_blocked=False, quota=settings.get('quota', 0),
                     month_used=1024000000*(i+1), month='Демо',
@@ -55,6 +58,19 @@ class Demo:
                 raise BackendError('Клиент не найден')
             self.settings[peer_id] = dict(name=name, quota=quota)
             return self.view()
+
+    def history(self, peer_id=None, period='7d'):
+        peer = next((p for p in self.view()['peers'] if p['id'] == peer_id), None)
+        if peer_id and not peer:
+            raise BackendError('Клиент не найден')
+        today = datetime.now(ZoneInfo('Europe/Moscow')).date()
+        start = today-timedelta(days=6) if period == '7d' else today.replace(day=1)
+        zero = dict(rx=0, tx=0, total=0)
+        return dict(days=[dict(day=(start+timedelta(days=i)).isoformat(), **zero)
+                          for i in range((today-start).days+1)], period=period, peer=peer,
+                    summary={k:dict(zero) for k in ('today','yesterday','week','month')},
+                    unallocated_month=zero, history_started=time.time(), timezone='Europe/Moscow',
+                    error=None, collected_at=time.time(), demo=True)
 
 
 def create_app(backend=None, config=None):
@@ -136,6 +152,25 @@ def create_app(backend=None, config=None):
         session.update(logged_in=True, csrf=secrets.token_urlsafe(32))
         session.permanent = True
         return jsonify(ok=True)
+
+    @app.get('/history')
+    @app.get('/clients/<peer_id>')
+    def history_page(peer_id=None):
+        if peer_id is not None and not re.fullmatch('[a-f0-9]{24}', peer_id):
+            return jsonify(error='Клиент не найден'), 404
+        return render_template('history.html' if session.get('logged_in') else 'login.html',
+                               csrf=session['csrf'], demo=app.config['DEMO'], peer_id=peer_id or '')
+
+    @app.get('/api/history')
+    def history():
+        peer_id = request.args.get('id') or None
+        period = request.args.get('period', '7d')
+        if period not in {'7d', 'month'} or (peer_id is not None and not re.fullmatch('[a-f0-9]{24}', peer_id)):
+            return jsonify(error='Некорректный период или клиент'), 400
+        try:
+            return jsonify(service.history(peer_id, period))
+        except BackendError as e:
+            return jsonify(error=str(e)), 409
 
     @app.post('/api/logout')
     def logout():

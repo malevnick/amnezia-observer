@@ -4,7 +4,7 @@ const csrf=document.querySelector('meta[name="csrf-token"]').content;
 const base=document.querySelector('meta[name="app-base"]').content.replace(/\/$/,'');
 let data=null, pending=null, busy=false, fresh=false, refreshing=false, refreshTimer=null;
 async function api(path, body){
- const isStatus=path==='/api/status'&&!body;
+ const isStatus=(path==='/api/status'||path.startsWith('/api/history?'))&&!body;
  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),isStatus?1000:28000);
  try{
   const response=await fetch(base+path,{method:body?'POST':'GET',credentials:'same-origin',signal:controller.signal,
@@ -23,12 +23,26 @@ function bytes(value){if(value===null||value===undefined)return '—';let n=valu
 function ago(ts){if(!ts)return 'Нет обмена';const s=Math.max(0,Math.floor(Date.now()/1000-ts));return s<60?s+' сек назад':s<3600?Math.floor(s/60)+' мин назад':Math.floor(s/3600)+' ч назад';}
 function el(tag,text,cls){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;}
 function toast(message){$('toast').textContent=message;$('toast').classList.remove('hidden');setTimeout(()=>$('toast').classList.add('hidden'),5000);}
+function sortedPeers(peers, query, order){
+ const result=peers.filter(p=>(p.name+' '+p.addresses).toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+ const byName=(a,b)=>a.name.localeCompare(b.name,'ru',{sensitivity:'base',numeric:true})||a.id.localeCompare(b.id);
+ const compare=(a,b)=>{
+  if(order==='name-desc')return -byName(a,b);
+  if(order==='traffic')return b.month_used-a.month_used;
+  if(order==='quota')return (b.quota?b.month_used/b.quota:-1)-(a.quota?a.month_used/a.quota:-1);
+  if(order==='handshake')return (b.handshake||0)-(a.handshake||0);
+  if(['online','offline','blocked'].includes(order))return Number(order==='blocked'?b.blocked:b.state===order)-Number(order==='blocked'?a.blocked:a.state===order);
+  return 0;
+ };
+ return result.sort((a,b)=>compare(a,b)||byName(a,b));
+}
 function renderPeers(){
  const target=$('peers');target.replaceChildren();const query=$('search').value.toLowerCase();
- const peers=(data?.peers||[]).filter(p=>(p.name+' '+p.addresses).toLowerCase().includes(query));
+ const peers=sortedPeers(data?.peers||[],query,$('sort').value);
  $('empty').classList.toggle('hidden',peers.length>0);
  for(const p of peers){
-  const tr=el('tr'), name=el('td');name.append(el('strong',p.name),el('small',p.addresses));tr.append(name);
+  const tr=el('tr'), name=el('td'),link=el('a',p.name);link.href=base+'/clients/'+p.id;
+  const title=el('strong');title.append(link);name.append(title,el('small',p.addresses));tr.append(name);
   const state=el('td');state.append(el('span',({online:'Активен',offline:'Неактивен',blocked:'Заблокирован',pending:'Применяется'})[p.state]||'Неизвестно','badge '+p.state));tr.append(state);
   tr.append(el('td',ago(p.handshake)),el('td',bytes(p.sent)+' / '+bytes(p.received)));
   const quota=el('td',bytes(p.month_used)+' / '+(p.quota?bytes(p.quota):'без лимита'));
@@ -42,7 +56,7 @@ function renderPeers(){
   });cell.append(button);
   const edit=el('button','Настроить');edit.disabled=!fresh||busy;
   edit.addEventListener('click',()=>{
-   $('edit-id').value=p.id;$('client-name').value=p.name;
+   $('edit-id').value=p.id;$('client-name').value=p.observer_name??p.name;
    $('client-quota').value=p.quota?String(p.quota/1024**3):'';
    $('edit-error').textContent='';$('edit-client').showModal();
   });cell.append(edit);tr.append(cell);target.append(tr);
@@ -64,7 +78,8 @@ function render(){
  $('online').textContent=fresh?(data.peers||[]).filter(p=>p.state==='online').length:'—';
  $('peer-total').textContent='Из '+(data.peers||[]).length+' устройств';renderPeers();
  $('month-zone').textContent=data.timezone||'Europe/Moscow';
- $('actions').replaceChildren();for(const a of data.actions||[]){$('actions').append(el('li',a.name+' · '+(a.block?'Доступ заблокирован':'Доступ восстановлен')+' · '+ago(a.time)));}
+ const labels={manual_block:'Ручная блокировка',manual_unblock:'Ручная разблокировка',quota_block:'Исчерпан лимит',month_restore:'Новый месяц: доступ восстановлен',quota_restore:'После изменения лимита: доступ восстановлен',rename:'Имя изменено',quota_change:'Месячный лимит изменён'};
+ $('actions').replaceChildren();for(const a of data.actions||[]){$('actions').append(el('li',a.name+' · '+(labels[a.type]||(a.block?'Доступ заблокирован':'Доступ восстановлен'))+' · '+new Date(a.time*1000).toLocaleString('ru-RU')));}
  if(!data.actions?.length)$('actions').append(el('li','Действий пока нет'));
 }
 async function refresh(){
@@ -89,7 +104,8 @@ if($('login-form')){
   try{await api('/login',{username:$('username').value,password:$('password').value});location.href=base+'/';}
   catch(e){$('login-error').textContent=e.message;}finally{button.disabled=false;button.textContent='Войти в панель →';}
  });
-}else{
+}else if($('peers')){
+ $('sort').addEventListener('change',renderPeers);
  $('search').addEventListener('input',renderPeers);$('refresh').addEventListener('click',refresh);
  $('logout').addEventListener('click',async()=>{try{await api('/api/logout',{});location.href=base+'/';}catch(e){toast(e.message);}});
  $('cancel').addEventListener('click',()=>$('confirm').close());

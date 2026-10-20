@@ -126,7 +126,6 @@ class Monitor:
         self.latest = None
         self.error = None
         self.last_cpu = self.last_net = None
-        self.actions = []
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.accounting = Accounting(self.path.with_suffix('.sqlite3'), os.getenv('MONTH_TIMEZONE', 'Europe/Moscow'))
 
@@ -192,6 +191,11 @@ class Monitor:
                     elif row['enforced'] and key not in self.blocked:
                         if key not in live:
                             self.driver.restore(key, config[key])
+                        _, _, confirmed = self.driver.snapshot()
+                        if key not in confirmed:
+                            raise BackendError('Восстановление после квоты не подтверждено')
+                        self.accounting.event(key, 'month_restore' if row['enforced_month'] != self.accounting.month()
+                                              else 'quota_restore', row['alias'] or names.get(key) or 'Устройство')
                         self.accounting.enforcement(key, False)
                 quota_blocks = {k for k in config if usage[k]['limited']}
                 effective = self.blocked | quota_blocks
@@ -200,6 +204,9 @@ class Monitor:
                     self.driver.remove(key)
                     self.accounting.removed(key)
                 config, names, live = self.driver.snapshot()
+                for key in quota_blocks & config.keys():
+                    if key not in live:
+                        self.accounting.event(key, 'quota_block', usage[key]['alias'] or names.get(key) or 'Устройство')
                 peers = []
                 for key, peer in config.items():
                     status = live.get(key, {})
@@ -208,13 +215,14 @@ class Monitor:
                     if row is None:
                         raise BackendError('Список клиентов изменился; ожидается следующий опрос')
                     peers.append(dict(id=self.identifier(key), name=row['alias'] or names.get(key) or 'Устройство ' + key[:6],
+                        observer_name=row['alias'], amnezia_name=names.get(key, ''),
                         addresses=peer.get('allowedips', ''), blocked=blocked,
                         manual_blocked=key in self.blocked, quota_blocked=row['limited'],
                         quota=row['quota'], month_used=row['used'], month=self.accounting.month(),
                         accounting_started=row['started'],
                         state=('blocked' if key not in live else 'pending') if blocked else
                               ('online' if time.time()-status.get('handshake', 0)<180 else 'offline'),
-                        handshake=status.get('handshake'), received=row['received'],
+                        handshake=status.get('handshake') or row['handshake'], received=row['received'],
                         sent=row['sent'], endpoint=status.get('endpoint')))
                 self.latest = dict(peers=peers, metrics=self.metrics(), collected_at=time.time(),
                                    timezone=str(self.accounting.zone), orphaned_blocks=len(self.blocked-config.keys()))
@@ -224,7 +232,21 @@ class Monitor:
 
     def view(self):
         with self.lock:
-            return dict(self.latest or {}, error=self.error, actions=list(self.actions), demo=False)
+            return dict(self.latest or {}, error=self.error, actions=self.accounting.events(), demo=False)
+
+    def history(self, peer_id=None, period='7d'):
+        if period not in {'7d', 'month'}:
+            raise BackendError('Неизвестный период')
+        with self.lock:
+            key = None
+            peer = None
+            if peer_id is not None:
+                peer = next((p for p in (self.latest or {}).get('peers', []) if p['id'] == peer_id), None)
+                key = next((k for k in self.accounting.view() if self.identifier(k) == peer_id), None)
+                if peer is None or key is None:
+                    raise BackendError('Клиент не найден')
+            return dict(self.accounting.history(key, period), peer=peer, error=self.error,
+                        collected_at=(self.latest or {}).get('collected_at'), demo=False)
 
     def action(self, peer_id, block):
         with self.lock:
@@ -259,8 +281,9 @@ class Monitor:
             _, _, actual = self.driver.snapshot()
             if (key in actual) == block:
                 raise BackendError('Изменение не подтверждено Amnezia; проверьте состояние')
-            self.actions.insert(0, dict(time=time.time(), name=names.get(key) or key[:6], block=block))
-            self.actions = self.actions[:20]
+            row = self.accounting.view()[key]
+            self.accounting.event(key, 'manual_block' if block else 'manual_unblock',
+                                  row['alias'] or names.get(key) or 'Устройство')
             self.collect()
             return self.view()
 
@@ -270,12 +293,12 @@ class Monitor:
                 type(quota) is not int or not 0 <= quota <= 1024**5):
             raise BackendError('Имя: до 80 символов; лимит: неотрицательное число байтов')
         with self.lock:
-            peers, _, live = self.driver.snapshot()
+            peers, names, live = self.driver.snapshot()
             key = next((k for k in peers if self.identifier(k) == peer_id), None)
             if key is None:
                 raise BackendError('Клиент больше не существует')
             self.accounting.sample(peers, live)
-            self.accounting.edit(key, name.strip(), quota)
+            self.accounting.edit(key, name.strip(), quota, name.strip() or names.get(key) or 'Устройство')
             self.collect()
             if self.error:
                 raise BackendError('Настройки сохранены, но применение не завершено: ' + self.error)
@@ -313,6 +336,10 @@ class BrokerClient:
     def edit(self, peer_id, name, quota):
         return self.request('POST', '/edit', dict(id=peer_id, name=name, quota=quota))
 
+    def history(self, peer_id=None, period='7d'):
+        from urllib.parse import urlencode
+        return self.request('GET', '/history?' + urlencode(dict(id=peer_id or '', period=period)))
+
 
 def serve():
     monitor = Monitor(DockerDriver(), os.getenv('STATE_FILE', '/var/lib/amnezia-observer/blocked.json'))
@@ -327,7 +354,20 @@ def serve():
             pass
 
         def do_GET(self):
-            self.reply(200, monitor.view()) if self.path == '/status' else self.reply(404, {})
+            from urllib.parse import urlsplit, parse_qs
+            url = urlsplit(self.path)
+            try:
+                if url.path == '/status':
+                    self.reply(200, monitor.view())
+                elif url.path == '/history':
+                    query = parse_qs(url.query)
+                    self.reply(200, monitor.history(query.get('id', [None])[0], query.get('period', ['7d'])[0]))
+                else:
+                    self.reply(404, {})
+            except BackendError as e:
+                self.reply(409, dict(error=str(e)))
+            except Exception:
+                self.reply(500, dict(error='Ошибка локальной службы'))
 
         def do_POST(self):
             try:

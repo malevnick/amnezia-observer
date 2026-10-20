@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="{{ csrf }}"><meta name="app-base" content="{{ url_for('index') }}">
+<meta name="peer-id" content="{{ peer_id }}"><title>Observer / История трафика</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=3.4">
+<script defer src="{{ url_for('static', filename='ui.js') }}?v=3.4"></script>
+<script defer src="{{ url_for('static', filename='history.js') }}?v=3.4"></script></head>
+<body><main class="detail-page">
+<nav class="page-nav"><a href="{{ url_for('index') }}">← Обзор и устройства</a><a href="{{ url_for('history_page') }}">Общая история</a></nav>
+<header><div><div class="eyebrow">AMNEZIA OBSERVER</div><h1 id="page-title">{{ 'Устройство' if peer_id else 'История трафика' }}</h1><p id="history-scope">{{ 'Статистика выбранного клиента' if peer_id else 'Сумма по всем наблюдавшимся клиентам, включая удалённых' }}</p></div><button id="history-refresh">↻ Обновить</button></header>
+{% if demo %}<div class="notice">Демо: история пустая. Действия не влияют на VPS.</div>{% endif %}
+<div id="history-error" class="error hidden" role="alert"></div><p id="history-updated" role="status">Загрузка…</p>
+{% if peer_id %}
+<section class="detail-box"><h2>Подключение</h2><dl class="details">
+<dt>Имя в Observer</dt><dd id="detail-alias">—</dd><dt>Имя в Amnezia</dt><dd id="detail-amnezia">—</dd>
+<dt>VPN IP / AllowedIPs</dt><dd id="detail-ip">—</dd><dt>Состояние</dt><dd id="detail-state">—</dd>
+<dt>Причина блокировки</dt><dd id="detail-reason">—</dd><dt>Последний handshake</dt><dd id="detail-handshake">—</dd>
+<dt>Учёт с</dt><dd id="detail-started">—</dd><dt>Месячный лимит</dt><dd id="detail-quota">—</dd>
+<dt>Использование лимита</dt><dd id="detail-percent">—</dd></dl>
+<button id="detail-block" disabled>Загрузка…</button></section>
+{% endif %}
+<section><div class="section-title"><h2>Использование</h2><small id="history-zone"></small></div>
+<p>RX — получено сервером от клиента (отправлено клиентом). TX — отправлено сервером клиенту (скачано клиентом).</p>
+<div class="cards history-cards">
+{% for key,label in [('today','Сегодня'),('yesterday','Вчера'),('week','Последние 7 дней'),('month','Текущий месяц')] %}
+<article><span>{{ label }}</span><strong id="sum-{{ key }}">—</strong><small id="rx-{{ key }}">RX —</small><small id="tx-{{ key }}">TX —</small></article>
+{% endfor %}</div></section>
+<section class="detail-box"><div class="section-title"><h2>Трафик по дням</h2><label for="period">Период <select id="period"><option value="7d">7 дней</option><option value="month">Текущий месяц</option></select></label></div>
+<p id="history-coverage"></p><p id="history-unallocated"></p>
+<div class="chart-legend"><span class="rx-key">RX</span><span class="tx-key">TX</span><span class="total-key">Всего RX + TX</span></div>
+<svg id="history-chart" viewBox="0 0 720 240" role="img" aria-label="Трафик по дням. Точные значения в таблице ниже."></svg>
+<p id="chart-empty" class="empty hidden">За этот период нет зарегистрированного трафика.</p>
+<div class="table-wrap history-table"><table><thead><tr><th>Дата</th><th>RX</th><th>TX</th><th>Всего</th></tr></thead><tbody id="history-days"></tbody></table></div></section>
+{% if peer_id %}
+<section class="detail-box"><h2>Настройки клиента</h2><form id="detail-form" class="detail-form">
+<label for="detail-name">Имя в Observer (пустое — использовать имя Amnezia)</label><input id="detail-name" maxlength="80" autocomplete="off">
+<label for="detail-limit">Месячный объём в ГиБ, RX + TX (0 или пустое — без лимита)</label><input id="detail-limit" type="number" min="0" max="1048576" step="any">
+<p>Имя в Amnezia не изменится. При исчерпании лимита сначала увеличьте его или отключите, затем снимите ручную блокировку, если она есть.</p>
+<button id="detail-save" class="primary" disabled>Сохранить</button><p id="detail-message" role="status"></p></form></section>
+{% endif %}
+<footer><a href="https://github.com/malevnick" rel="noopener noreferrer">v3 by malevnick</a><span>Без внешних библиотек графиков</span></footer>
+</main><div id="toast" role="status" class="hidden"></div></body></html>

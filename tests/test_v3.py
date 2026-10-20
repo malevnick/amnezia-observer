@@ -54,7 +54,8 @@ class QuotaTests(unittest.TestCase):
         self.monitor.collect()
         self.driver.live[KEY] = dict(received=10, sent=20, handshake=0)
         self.monitor.collect()
-        self.assertEqual(self.peer()['month_used'], 139)
+        # Temporary disappearance preserves the 4/5 baseline; only +6/+15 is new.
+        self.assertEqual(self.peer()['month_used'], 130)
 
     def test_limit_is_upload_plus_download_and_unblock_guard(self):
         self.monitor.edit(self.id, 'Телефон', 100)
