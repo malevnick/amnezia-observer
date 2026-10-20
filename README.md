@@ -1,7 +1,6 @@
 # Amnezia Observer
 
 Лёгкая веб-панель для собственного сервера AmneziaWG.
-**v3 by [malevnick](https://github.com/malevnick)**.
 Независимый проект, не официальный продукт Amnezia.
 <img width="1897" height="912" alt="image" src="https://github.com/user-attachments/assets/49472fbb-7a18-4d43-bbfb-e2d671e45751" />
 
